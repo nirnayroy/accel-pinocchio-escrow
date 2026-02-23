@@ -1,8 +1,7 @@
 pub mod make;
-// pub mod make_2;
 
 pub use make::*;
-// pub use make_2::*;
+use pinocchio::error::ProgramError;
 
 pub enum EscrowInstrctions {
     Make = 0,
@@ -12,7 +11,7 @@ pub enum EscrowInstrctions {
 }
 
 impl TryFrom<&u8> for EscrowInstrctions {
-    type Error = pinocchio::program_error::ProgramError;
+    type Error = ProgramError;
 
     fn try_from(value: &u8) -> Result<Self, Self::Error> {
         match value {
@@ -20,7 +19,7 @@ impl TryFrom<&u8> for EscrowInstrctions {
             1 => Ok(EscrowInstrctions::Take),
             2 => Ok(EscrowInstrctions::Cancel),
             3 => Ok(EscrowInstrctions::MakeV2),
-            _ => Err(pinocchio::program_error::ProgramError::InvalidInstructionData),
+            _ => Err(ProgramError::InvalidInstructionData),
         }
     }
 }

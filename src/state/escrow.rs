@@ -1,4 +1,4 @@
-use pinocchio::{account_info::AccountInfo, program_error::ProgramError};
+use pinocchio::{AccountView, error::ProgramError};
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -14,8 +14,8 @@ pub struct Escrow {
 impl Escrow {
     pub const LEN: usize = 32 + 32 + 32 + 8 + 8;
 
-    pub fn from_account_info(account_info: &AccountInfo) -> Result<&mut Self, ProgramError> {
-        let mut data = account_info.try_borrow_mut_data()?;
+    pub fn from_account_info(account_info: &AccountView) -> Result<&mut Self, ProgramError> {
+        let mut data = account_info.try_borrow_mut()?;
         if data.len() != Escrow::LEN {
             return Err(ProgramError::InvalidAccountData);
         }
@@ -24,37 +24,30 @@ impl Escrow {
             return Err(ProgramError::InvalidAccountData);
         }
 
-        // let mut escrow = Escrow::default();
-        
-        // escrow.maker.copy_from_slice(&data[0..32]);
-        // escrow.mint_a.copy_from_slice(&data[32..64]);
-        // escrow.mint_b.copy_from_slice(&data[64..96]);
-        // escrow.amount_to_receive.copy_from_slice(&data[96..104]);
-
         Ok(unsafe { &mut *(data.as_mut_ptr() as *mut Self) })
     }
 
-    pub fn maker(&self) -> pinocchio::pubkey::Pubkey {
-        pinocchio::pubkey::Pubkey::from(self.maker)
+    pub fn maker(&self) -> pinocchio::Address {
+        pinocchio::Address::from(self.maker)
     }
 
-    pub fn set_maker(&mut self, maker: &pinocchio::pubkey::Pubkey) {
+    pub fn set_maker(&mut self, maker: &pinocchio::Address) {
         self.maker.copy_from_slice(maker.as_ref());
     }
 
-    pub fn mint_a(&self) -> pinocchio::pubkey::Pubkey {
-        pinocchio::pubkey::Pubkey::from(self.mint_a)
+    pub fn mint_a(&self) -> pinocchio::Address {
+        pinocchio::Address::from(self.mint_a)
     }
 
-    pub fn set_mint_a(&mut self, mint_a: &pinocchio::pubkey::Pubkey) {
+    pub fn set_mint_a(&mut self, mint_a: &pinocchio::Address) {
         self.mint_a.copy_from_slice(mint_a.as_ref());
     }
 
-    pub fn mint_b(&self) -> pinocchio::pubkey::Pubkey {
-        pinocchio::pubkey::Pubkey::from(self.mint_b)
+    pub fn mint_b(&self) -> pinocchio::Address {
+        pinocchio::Address::from(self.mint_b)
     }
 
-    pub fn set_mint_b(&mut self, mint_b: &pinocchio::pubkey::Pubkey) {
+    pub fn set_mint_b(&mut self, mint_b: &pinocchio::Address) {
         self.mint_b.copy_from_slice(mint_b.as_ref());
     }
 

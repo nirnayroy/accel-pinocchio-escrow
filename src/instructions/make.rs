@@ -1,5 +1,5 @@
 use pinocchio::{
-    account_info::AccountInfo, instruction::{Seed, Signer}, msg, pubkey::log, sysvars::{rent::Rent, Sysvar}, ProgramResult
+    AccountView, ProgramResult, cpi::{Seed, Signer}, error::ProgramError, sysvars::{Sysvar, rent::Rent}
 };
 use pinocchio_pubkey::derive_address;
 use pinocchio_system::instructions::CreateAccount;
@@ -7,11 +7,9 @@ use pinocchio_system::instructions::CreateAccount;
 use crate::state::Escrow;
 
 pub fn process_make_instruction(
-    accounts: &[AccountInfo],
+    accounts: &[AccountView],
     data: &[u8],
 ) -> ProgramResult {
-
-    msg!("Processing Make instruction");
 
     let [
         maker,
@@ -22,59 +20,58 @@ pub fn process_make_instruction(
         escrow_ata,
         system_program,
         token_program,
-        _associated_token_program,
-        _rent_sysvar @ ..
+        _associated_token_program@ ..
     ] = accounts else {
-        return Err(pinocchio::program_error::ProgramError::NotEnoughAccountKeys);
+        return Err(ProgramError::NotEnoughAccountKeys);
     };
 
-    let maker_ata_state = pinocchio_token::state::TokenAccount::from_account_info(&maker_ata)?;
-    if maker_ata_state.owner() != maker.key() {
-        return Err(pinocchio::program_error::ProgramError::IllegalOwner);
+    let maker_ata_state = pinocchio_token::state::TokenAccount::from_account_view(&maker_ata)?;
+    if maker_ata_state.owner() != maker.address() {
+        return Err(ProgramError::IllegalOwner);
     }
-    if maker_ata_state.mint() != mint_a.key() {
-        return Err(pinocchio::program_error::ProgramError::InvalidAccountData);
+    if maker_ata_state.mint() != mint_a.address() {
+        return Err(ProgramError::InvalidAccountData);
     }
 
     let bump = data[0];
-    let seed = [b"escrow".as_ref(), maker.key().as_slice(), &[bump]];
+    let seed = [b"escrow".as_ref(), maker.address().as_ref(), &[bump]];
     let seeds = &seed[..];
 
-    let escrow_account_pda = derive_address(&seed, None, &crate::ID);
-    log(&escrow_account_pda);
-    log(&escrow_account.key());
-    assert_eq!(escrow_account_pda, *escrow_account.key());
+    let escrow_account_pda = derive_address(&seed, None, &crate::ID.to_bytes());
+    assert_eq!(escrow_account_pda, *escrow_account.address().as_array());
 
     let amount_to_receive = unsafe{ *(data.as_ptr().add(1) as *const u64) };
     let amount_to_give = unsafe{ *(data.as_ptr().add(9) as *const u64) };
 
     let bump = [bump.to_le()];
-    let seed = [Seed::from(b"escrow"), Seed::from(maker.key()), Seed::from(&bump)];
+    let seed = [Seed::from(b"escrow"), Seed::from(maker.address().as_array()), Seed::from(&bump)];
     let seeds = Signer::from(&seed);
 
-    if escrow_account.owner() != &crate::ID {
-        CreateAccount {
-            from: maker,
-            to: escrow_account,
-            lamports: Rent::get()?.minimum_balance(Escrow::LEN),
-            space: Escrow::LEN as u64,
-            owner: &crate::ID,
-        }.invoke_signed(&[seeds.clone()])?;
+    unsafe {
+        if escrow_account.owner() != &crate::ID {
+            CreateAccount {
+                from: maker,
+                to: escrow_account,
+                lamports: Rent::get()?.try_minimum_balance(Escrow::LEN)?,
+                space: Escrow::LEN as u64,
+                owner: &crate::ID,
+            }.invoke_signed(&[seeds.clone()])?;
 
 
-        {
-            let escrow_state = Escrow::from_account_info(escrow_account)?;
-        
-            escrow_state.set_maker(maker.key());
-            escrow_state.set_mint_a(mint_a.key());
-            escrow_state.set_mint_b(mint_b.key());
-            escrow_state.set_amount_to_receive(amount_to_receive);
-            escrow_state.set_amount_to_give(amount_to_give);  
-            escrow_state.bump = data[0];
+            {
+                let escrow_state = Escrow::from_account_info(escrow_account)?;
+            
+                escrow_state.set_maker(maker.address());
+                escrow_state.set_mint_a(mint_a.address());
+                escrow_state.set_mint_b(mint_b.address());
+                escrow_state.set_amount_to_receive(amount_to_receive);
+                escrow_state.set_amount_to_give(amount_to_give);  
+                escrow_state.bump = data[0];
+            }
         }
-    }
-    else {
-        return Err(pinocchio::program_error::ProgramError::IllegalOwner);
+        else {
+            return Err(ProgramError::IllegalOwner);
+        }
     }
 
     pinocchio_associated_token_account::instructions::Create {

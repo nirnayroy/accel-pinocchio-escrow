@@ -4,7 +4,7 @@ mod tests {
     use std::path::PathBuf;
 
     use litesvm::LiteSVM;
-    use litesvm_token::{spl_token::{self, solana_program::{msg, rent::Rent, sysvar::SysvarId}}, CreateAssociatedTokenAccount, CreateMint, MintTo};
+    use litesvm_token::{spl_token::{self}, CreateAssociatedTokenAccount, CreateMint, MintTo};
     
     use solana_instruction::{AccountMeta, Instruction};
     use solana_keypair::Keypair;
@@ -32,13 +32,12 @@ mod tests {
             .expect("Airdrop failed");
 
         // Load program SO file
-        msg!("The path is!! {}", env!("CARGO_MANIFEST_DIR"));
+        println!("The path is!! {}", env!("CARGO_MANIFEST_DIR"));
         let so_path = PathBuf::from("/Users/andrecorreia/Documents/Solana/pinocchio-escrow-2025/escrow/target/sbf-solana-solana/release/escrow.so");
-        msg!("The path is!! {:?}", so_path);
     
         let program_data = std::fs::read(so_path).expect("Failed to read program SO file");
     
-        svm.add_program(program_id(), &program_data);
+        svm.add_program(program_id(), &program_data).expect("Failed to add program");
 
         (svm, payer)
         
@@ -57,36 +56,36 @@ mod tests {
             .authority(&payer.pubkey())
             .send()
             .unwrap();
-        msg!("Mint A: {}", mint_a);
+        println!("Mint A: {}", mint_a);
 
         let mint_b = CreateMint::new(&mut svm, &payer)
             .decimals(6)
             .authority(&payer.pubkey())
             .send()
             .unwrap();
-        msg!("Mint B: {}", mint_b);
+        println!("Mint B: {}", mint_b);
 
         // Create the maker's associated token account for Mint A
         let maker_ata_a = CreateAssociatedTokenAccount::new(&mut svm, &payer, &mint_a)
             .owner(&payer.pubkey()).send().unwrap();
-        msg!("Maker ATA A: {}\n", maker_ata_a);
+        println!("Maker ATA A: {}\n", maker_ata_a);
 
         // Derive the PDA for the escrow account using the maker's public key and a seed value
         let escrow = Pubkey::find_program_address(
             &[b"escrow".as_ref(), payer.pubkey().as_ref()],
             &PROGRAM_ID.parse().unwrap(),
         );
-        msg!("Escrow PDA: {}\n", escrow.0);
+        println!("Escrow PDA: {}\n", escrow.0);
 
         // Derive the PDA for the vault associated token account using the escrow PDA and Mint A
         let vault = spl_associated_token_account::get_associated_token_address(
             &escrow.0,  // owner will be the escrow PDA
             &mint_a     // mint
         );
-        msg!("Vault PDA: {}\n", vault);
+        println!("Vault PDA: {}\n", vault);
 
         // Define program IDs for associated token program, token program, and system program
-        let asspciated_token_program = ASSOCIATED_TOKEN_PROGRAM_ID.parse::<Pubkey>().unwrap();
+        let associated_token_program = ASSOCIATED_TOKEN_PROGRAM_ID.parse::<Pubkey>().unwrap();
         let token_program = TOKEN_PROGRAM_ID;
         let system_program = solana_sdk_ids::system_program::ID;
 
@@ -99,7 +98,7 @@ mod tests {
         let amount_to_give: u64 = 500000000;    // 500 tokens with 6 decimal places
         let bump: u8 = escrow.1;
 
-        msg!("Bump: {}", bump);
+        println!("Bump: {}", bump);
 
         // Create the "Make" instruction to deposit tokens into the escrow
         let make_data = [
@@ -119,8 +118,7 @@ mod tests {
                 AccountMeta::new(vault, false),
                 AccountMeta::new(system_program, false),
                 AccountMeta::new(token_program, false),
-                AccountMeta::new(asspciated_token_program, false),
-                AccountMeta::new(Rent::id(), false),
+                AccountMeta::new(associated_token_program, false),
             ],
             data: make_data,
         };
@@ -135,7 +133,7 @@ mod tests {
         let tx = svm.send_transaction(transaction).unwrap();
 
         // Log transaction details
-        msg!("\n\nMake transaction sucessfull");
-        msg!("CUs Consumed: {}", tx.compute_units_consumed);
+        println!("\n\nMake transaction sucessfull");
+        println!("CUs Consumed: {}", tx.compute_units_consumed);
     }
 }

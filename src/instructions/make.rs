@@ -9,11 +9,12 @@ use pinocchio_system::instructions::CreateAccount;
 
 use crate::state::Escrow;
 
-pub fn process_make_instruction(accounts: &[AccountView], data: &[u8]) -> ProgramResult {
-    if data.len() < 17 {
-        return Err(ProgramError::InvalidInstructionData);
-    }
-
+fn make_common(
+    accounts: &[AccountView],
+    bump: u8,
+    amount_to_receive: u64,
+    amount_to_give: u64,
+) -> ProgramResult {
     let [maker, mint_a, mint_b, escrow_account, maker_ata, escrow_ata, system_program, token_program, _associated_token_program @ ..] =
         accounts
     else {
@@ -28,16 +29,10 @@ pub fn process_make_instruction(accounts: &[AccountView], data: &[u8]) -> Progra
         return Err(ProgramError::InvalidAccountData);
     }
 
-    let bump = data[0];
     let seed = [b"escrow".as_ref(), maker.address().as_ref(), &[bump]];
 
     let escrow_account_pda = derive_address(&seed, None, &crate::ID.to_bytes());
-    if escrow_account_pda != *escrow_account.address().as_array() {
-        return Err(ProgramError::InvalidSeeds);
-    }
-
-    let amount_to_receive = u64::from_le_bytes(data[1..9].try_into().unwrap());
-    let amount_to_give = u64::from_le_bytes(data[9..17].try_into().unwrap());
+    assert_eq!(escrow_account_pda, *escrow_account.address().as_array());
 
     let bump = [bump.to_le()];
     let seed = [
@@ -66,7 +61,7 @@ pub fn process_make_instruction(accounts: &[AccountView], data: &[u8]) -> Progra
                 escrow_state.set_mint_b(mint_b.address());
                 escrow_state.set_amount_to_receive(amount_to_receive);
                 escrow_state.set_amount_to_give(amount_to_give);
-                escrow_state.bump = data[0];
+                escrow_state.bump = bump[0];
             }
         } else {
             return Err(ProgramError::IllegalOwner);
@@ -92,4 +87,19 @@ pub fn process_make_instruction(accounts: &[AccountView], data: &[u8]) -> Progra
     .invoke()?;
 
     Ok(())
+}
+
+pub fn process_make_instruction(accounts: &[AccountView], data: &[u8]) -> ProgramResult {
+    let bump = data[0];
+    let amount_to_receive = unsafe { *(data.as_ptr().add(1) as *const u64) };
+    let amount_to_give = unsafe { *(data.as_ptr().add(9) as *const u64) };
+
+    make_common(accounts, bump, amount_to_receive, amount_to_give)
+}
+
+pub fn process_make_instruction_v2(accounts: &[AccountView], data: &[u8]) -> ProgramResult {
+    let (bump, amount_to_receive, amount_to_give): (u8, u64, u64) =
+        wincode::deserialize(data).map_err(|_| ProgramError::InvalidInstructionData)?;
+
+    make_common(accounts, bump, amount_to_receive, amount_to_give)
 }

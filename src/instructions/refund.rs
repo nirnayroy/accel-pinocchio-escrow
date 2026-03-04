@@ -3,6 +3,7 @@ use pinocchio::{
     error::ProgramError,
     AccountView, ProgramResult,
 };
+use pinocchio_pubkey::derive_address;
 
 use crate::state::Escrow;
 
@@ -13,61 +14,33 @@ pub fn process_refund_instruction(accounts: &[AccountView], _data: &[u8]) -> Pro
         return Err(ProgramError::NotEnoughAccountKeys);
     };
 
-    if !maker.is_signer() {
-        return Err(ProgramError::MissingRequiredSignature);
-    }
-    if !escrow_account.owned_by(&crate::ID) {
+    let maker_ata_a_state = pinocchio_token::state::TokenAccount::from_account_view(&maker_ata_a)?;
+    if maker_ata_a_state.owner() != maker.address() {
         return Err(ProgramError::IllegalOwner);
     }
-
-    let (maker_from_state, mint_a_from_state, mint_b_from_state, amount_to_give, bump) = {
-        let escrow_state = Escrow::from_account_info(escrow_account)?;
-        (
-            escrow_state.maker(),
-            escrow_state.mint_a(),
-            escrow_state.mint_b(),
-            escrow_state.amount_to_give(),
-            escrow_state.bump,
-        )
-    };
-
-    if maker_from_state != *maker.address()
-        || mint_a_from_state != *mint_a.address()
-        || mint_b_from_state != *mint_b.address()
-    {
+    if maker_ata_a_state.mint() != mint_a.address() {
         return Err(ProgramError::InvalidAccountData);
     }
 
-    let expected_escrow = pinocchio_pubkey::derive_address(
-        &[b"escrow", maker.address().as_ref(), &[bump]],
-        None,
-        &crate::ID.to_bytes(),
-    );
-    if expected_escrow != *escrow_account.address().as_array() {
-        return Err(ProgramError::InvalidSeeds);
-    }
+    let escrow_state = Escrow::from_account_info(escrow_account)?;
+    assert_eq!(escrow_state.maker(), *maker.address());
+    assert_eq!(escrow_state.mint_a(), *mint_a.address());
+    assert_eq!(escrow_state.mint_b(), *mint_b.address());
 
-    let maker_ata_a_state = pinocchio_token::state::TokenAccount::from_account_view(maker_ata_a)?;
-    if maker_ata_a_state.owner() != maker.address() || maker_ata_a_state.mint() != mint_a.address()
-    {
-        return Err(ProgramError::InvalidAccountData);
-    }
+    let bump = escrow_state.bump;
+    let amount_to_give = escrow_state.amount_to_give();
 
-    let escrow_ata_state = pinocchio_token::state::TokenAccount::from_account_view(escrow_ata)?;
-    if escrow_ata_state.owner() != escrow_account.address()
-        || escrow_ata_state.mint() != mint_a.address()
-        || escrow_ata_state.amount() < amount_to_give
-    {
-        return Err(ProgramError::InvalidAccountData);
-    }
+    let seed = [b"escrow".as_ref(), maker.address().as_ref(), &[bump]];
+    let escrow_account_pda = derive_address(&seed, None, &crate::ID.to_bytes());
+    assert_eq!(escrow_account_pda, *escrow_account.address().as_array());
 
-    let bump_seed = [bump.to_le()];
-    let signer_seed = [
+    let bump = [bump.to_le()];
+    let seed = [
         Seed::from(b"escrow"),
         Seed::from(maker.address().as_array()),
-        Seed::from(&bump_seed),
+        Seed::from(&bump),
     ];
-    let signer = Signer::from(&signer_seed);
+    let seeds = Signer::from(&seed);
 
     pinocchio_token::instructions::Transfer {
         from: escrow_ata,
@@ -75,17 +48,16 @@ pub fn process_refund_instruction(accounts: &[AccountView], _data: &[u8]) -> Pro
         authority: escrow_account,
         amount: amount_to_give,
     }
-    .invoke_signed(&[signer.clone()])?;
+    .invoke_signed(&[seeds.clone()])?;
 
     pinocchio_token::instructions::CloseAccount {
         account: escrow_ata,
         destination: maker,
         authority: escrow_account,
     }
-    .invoke_signed(&[signer])?;
+    .invoke_signed(&[seeds])?;
 
-    let maker_lamports = maker.lamports();
-    maker.set_lamports(maker_lamports.saturating_add(escrow_account.lamports()));
+    maker.set_lamports(maker.lamports().saturating_add(escrow_account.lamports()));
     escrow_account.close()?;
 
     Ok(())

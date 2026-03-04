@@ -1086,6 +1086,7 @@ dependencies = [
  "solana-transaction",
  "spl-associated-token-account",
  "spl-token-2022",
+ "wincode",
 ]
 
 [[package]]
